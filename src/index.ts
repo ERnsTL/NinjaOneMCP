@@ -1190,6 +1190,11 @@ const TOOLS = [
     name: 'get_pending_devices',
     description: 'List all devices awaiting approval',
     inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'device_filter_help',
+    description: 'Get help on NinjaOne Device Filter (df) syntax',
+    inputSchema: { type: 'object', properties: {} }
   }
 ];
 
@@ -1237,7 +1242,7 @@ class NinjaOneMCPServer {
           throw error;
         }
         throw new McpError(
-          ErrorCode.InternalError, 
+          ErrorCode.InternalError,
           `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`
         );
       }
@@ -1711,6 +1716,53 @@ class NinjaOneMCPServer {
         // ── Phase 4: Device approval ──
         case 'get_pending_devices':
           return this.result(await this.api.getPendingDevices());
+
+        case 'device_filter_help':
+          return this.result(
+`NinjaOne Device Filter (df) Syntax
+
+The df parameter uses NinjaOne Device Filter expressions.
+Do not use API property names such as:
+
+- organizationId
+- deviceId
+- systemName
+
+Instead use NinjaOne filter keywords.
+
+Common mappings:
+
+Organization -> organization
+Device -> id
+Online devices -> online
+Offline devices -> offline
+Status -> status
+
+Examples:
+
+organization = 123
+
+organization = 123 and offline
+
+organization in (123,456,789)
+
+id = 4711
+
+Agent behavior:
+
+When the user specifies an organization name:
+
+1. Call get_organizations
+2. Resolve the organization name to an organization ID
+3. Build a df filter using organization = <id>
+
+Never use:
+
+organizationId = 123
+deviceId = 4711
+
+Always use official NinjaOne Device Filter syntax.`
+          );
 
         default:
           throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
