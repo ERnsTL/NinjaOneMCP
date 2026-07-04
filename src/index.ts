@@ -1195,6 +1195,46 @@ const TOOLS = [
     name: 'device_filter_help',
     description: 'Get help on NinjaOne Device Filter (df) syntax',
     inputSchema: { type: 'object', properties: {} }
+  },
+
+  // Phase 5 — High-level script execution & job tracking
+
+  {
+    name: 'execute_script',
+    description: 'Execute an automation script by name with automatic tracking. Resolves script name → ID, executes, and polls until completion. Set confirm=true to execute; default is dry-run.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        device_id: { type: 'number', description: 'Device ID' },
+        script: { type: 'string', description: 'Script name (not numeric ID). The MCP will resolve the name to an ID automatically.' },
+        parameters: { type: 'string', description: 'Script parameters string (max 30,000 chars, max 50 params)' },
+        run_as: { type: 'string', description: 'Execution context (default: SYSTEM)' },
+        confirm: { type: 'boolean', description: 'Set to true to execute. Default false (dry-run).' }
+      },
+      required: ['device_id', 'script']
+    }
+  },
+  {
+    name: 'get_active_jobs',
+    description: 'Get active jobs for a device — useful for diagnostics and monitoring script execution',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        deviceId: { type: 'number', description: 'Device ID' }
+      },
+      required: ['deviceId']
+    }
+  },
+  {
+    name: 'get_device_scripting_options',
+    description: 'Get available scripting options (scripts and actions) for a specific device',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        deviceId: { type: 'number', description: 'Device ID' }
+      },
+      required: ['deviceId']
+    }
   }
 ];
 
@@ -1763,6 +1803,96 @@ deviceId = 4711
 
 Always use official NinjaOne Device Filter syntax.`
           );
+
+        // ── Phase 5: High-level script execution & job tracking ──
+        case 'execute_script': {
+          const deviceId = args.device_id;
+          const scriptName = args.script;
+          const runAs = args.run_as || 'SYSTEM';
+          const parameters = args.parameters || '';
+
+          // Step 1: Resolve script name → ID
+          const resolution = await this.api.findScriptByName(scriptName);
+          if (!resolution.found) {
+            if (resolution.candidates && resolution.candidates.length > 0) {
+              return this.result({
+                resolved: false,
+                note: resolution.note,
+                candidates: resolution.candidates
+              });
+            }
+            return this.result({ resolved: false, note: resolution.note });
+          }
+          const script = resolution.script;
+
+          // Dry run
+          if (!args.confirm) {
+            const device = await this.api.getDevice(deviceId);
+            return this.dryRun(
+              `Would execute script "${script.name}" (id=${script.id}) on device id=${deviceId} (${device.systemName || device.displayName || 'unknown'}).\n` +
+              `Run as: ${runAs}\n` +
+              `Parameters: ${parameters || 'none'}\n` +
+              `Language: ${script.language || 'unknown'}\n` +
+              `OS: ${script.operatingSystem || 'unknown'}`
+            );
+          }
+
+          // Step 2: Execute with tracking
+          const device = await this.api.getDevice(deviceId);
+          const jobSnapshot = await this.api.getDeviceJobs(deviceId).catch(() => null);
+          const existingJobIds = new Set(
+            (jobSnapshot?.jobs || jobSnapshot?.results || []).map((j: any) => j.id || j.jobId)
+          );
+
+          const runResult = await this.api.runDeviceScript(deviceId, {
+            type: 'SCRIPT',
+            id: script.id,
+            runAs,
+            parameters
+          });
+
+          // Step 3: Correlate new job (diff from before-execution snapshot)
+          const afterJobs = await this.api.getDeviceJobs(deviceId).catch(() => null);
+          const afterJobList = afterJobs?.jobs || afterJobs?.results || [];
+          const newJobs = afterJobList.filter((j: any) => {
+            const jid = j.id || j.jobId;
+            return jid && !existingJobIds.has(jid);
+          });
+
+          // Step 4: Track if we have an activity ID
+          const activityId = runResult?.activityId || runResult?.id || runResult?.activity?.id;
+          let tracking: any = null;
+          if (activityId) {
+            const timeoutMs = parseInt(process.env.SCRIPT_POLL_TIMEOUT_MS || '120000', 10);
+            tracking = await this.api.waitForScriptResult(deviceId, activityId, { timeoutMs, pollIntervalMs: 3000 });
+          }
+
+          return this.result({
+            accepted: true,
+            script: script.name,
+            scriptId: script.id,
+            deviceId,
+            deviceName: device.systemName || device.displayName || 'unknown',
+            runAs,
+            parameters: parameters || undefined,
+            activityId: activityId || undefined,
+            jobCorrelation: {
+              beforeCount: existingJobIds.size,
+              afterCount: afterJobList.length,
+              newJobsDetected: newJobs.length,
+              newJobs: newJobs.slice(0, 5).map((j: any) => ({
+                id: j.id || j.jobId,
+                name: j.name || j.description,
+                status: j.status
+              }))
+            },
+            trackingResult: tracking || { note: 'No activity ID returned; tracking unavailable.' }
+          });
+        }
+        case 'get_active_jobs':
+          return this.result(await this.api.getDeviceJobs(args.deviceId));
+        case 'get_device_scripting_options':
+          return this.result(await this.api.getDeviceScriptingOptions(args.deviceId));
 
         default:
           throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
