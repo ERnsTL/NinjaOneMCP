@@ -730,8 +730,8 @@ export class NinjaOneAPI {
 
   // Activities and Software
 
-  async getDeviceActivities(id: number, pageSize?: number, olderThan?: string): Promise<any> {
-    return this.makeRequest(`/v2/device/${id}/activities${this.buildQuery({ pageSize, olderThan })}`);
+  async getDeviceActivities(id: number, pageSize?: number, olderThan?: string, type?: string): Promise<any> {
+    return this.makeRequest(`/v2/device/${id}/activities${this.buildQuery({ pageSize, olderThan, type })}`);
   }
 
   /**
@@ -1095,6 +1095,7 @@ export class NinjaOneAPI {
     parameters?: string;
   }): Promise<any> {
     const payload = { type: body.type || 'SCRIPT', ...body };
+    console.error(`[DEBUG] POST /v2/device/${deviceId}/script/run payload:`, JSON.stringify(payload));
     return this.makeRequest(`/v2/device/${deviceId}/script/run`, 'POST', payload);
   }
 

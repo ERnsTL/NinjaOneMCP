@@ -235,6 +235,8 @@ Tools marked with **(confirm)** below use this pattern.
 
 > Note: Script execution requires authorization code flow in NinjaOne. `list_automations` may return an informational note if not available via client credentials.
 
+> **`runAs` parameter**: The default execution context is `"system"` (lowercase). Using uppercase `"SYSTEM"` can cause credential access denied errors, especially on Linux devices. Always use lowercase `"system"` unless you have a specific reason to do otherwise.
+
 ### Policy Management
 
 | Tool | Confirm | Description | Parameters |
@@ -265,6 +267,8 @@ Phase 5 adds AI-oriented script execution: resolve scripts by name (not numeric 
 | `execute_script` | **(confirm)** | Execute a script by name with automatic tracking. Resolves name → ID, executes, correlates the new job, and polls until completion. | `device_id`, `script` (name), `parameters?`, `run_as?`, `confirm?` |
 | `run_device_script` | **(confirm)** | Low-level: run a script by numeric ID. Use `execute_script` for AI-driven workflows — this is the raw API wrapper. | `deviceId`, `scriptId`, `type?`, `runAs?`, `parameters?`, `confirm?` |
 | `get_script_result` | — | Poll the result of a previously triggered script run | `deviceId`, `activityId` |
+
+> **`run_as` / `runAs` parameter**: The default execution context is `"system"` (lowercase). Using uppercase `"SYSTEM"` can cause credential access denied errors, especially on Linux devices. Always use lowercase `"system"` unless you have a specific reason to do otherwise.
 
 ### Job & Scripting Diagnostics
 

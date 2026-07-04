@@ -139,7 +139,20 @@ const TOOLS = [
       type: 'object',
       properties: {
         id: { type: 'number', description: 'Device ID' },
-        pageSize: { type: 'number', description: 'Number of results per page' }
+        pageSize: { type: 'number', description: 'Number of results per page' },
+        type: { type: 'string', description: 'Activity type filter (e.g., AUTOMATION, DEVICE, ALERT, PATCHING, TICKETING)' }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'get_device_automation_activities',
+    description: 'Get recent automation/script activities for a device (filtered, token-efficient — defaults to 10 results)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Device ID' },
+        pageSize: { type: 'number', description: 'Number of results (default: 10)' }
       },
       required: ['id']
     }
@@ -1145,7 +1158,7 @@ const TOOLS = [
         deviceId: { type: 'number', description: 'Device ID' },
         scriptId: { type: 'number', description: 'Script/automation ID from NinjaOne' },
         type: { type: 'string', enum: ['ACTION', 'SCRIPT'], description: 'Script type (default: SCRIPT)' },
-        runAs: { type: 'string', description: 'Execution context (default: SYSTEM)' },
+        runAs: { type: 'string', description: 'Execution context. Use lowercase "system" (default) to avoid access denied errors — uppercase "SYSTEM" can cause credential access denials, especially on Linux devices.' },
         parameters: { type: 'string', description: 'Script parameters string' },
         confirm: { type: 'boolean', description: 'Set to true to execute. Default false (dry-run).' }
       },
@@ -1208,7 +1221,7 @@ const TOOLS = [
         device_id: { type: 'number', description: 'Device ID' },
         script: { type: 'string', description: 'Script name (not numeric ID). The MCP will resolve the name to an ID automatically.' },
         parameters: { type: 'string', description: 'Script parameters string (max 30,000 chars, max 50 params)' },
-        run_as: { type: 'string', description: 'Execution context (default: SYSTEM)' },
+        run_as: { type: 'string', description: 'Execution context. Use lowercase "system" (default) to avoid access denied errors — uppercase "SYSTEM" can cause credential access denials, especially on Linux devices.' },
         confirm: { type: 'boolean', description: 'Set to true to execute. Default false (dry-run).' }
       },
       required: ['device_id', 'script']
@@ -1330,7 +1343,9 @@ class NinjaOneMCPServer {
         case 'get_device_software':
           return this.result(await this.api.getDeviceSoftware(args.id));
         case 'get_device_activities':
-          return this.result(await this.api.getDeviceActivities(args.id, args.pageSize));
+          return this.result(await this.api.getDeviceActivities(args.id, args.pageSize, undefined, args.type));
+        case 'get_device_automation_activities':
+          return this.result(await this.api.getDeviceActivities(args.id, args.pageSize || 10, undefined, 'AUTOMATION'));
         case 'search_devices_by_name':
           return this.result(await this.searchDevicesByName(args.name, args.limit || 10));
         case 'find_windows11_devices':
@@ -1730,12 +1745,12 @@ class NinjaOneMCPServer {
         case 'run_device_script': {
           if (!args.confirm) {
             const device = await this.api.getDevice(args.deviceId);
-            return this.dryRun(`Would run script id=${args.scriptId} on device id=${args.deviceId} (${device.systemName || device.displayName || 'unknown'}).\nType: ${args.type || 'SCRIPT'}\nRun as: ${args.runAs || 'SYSTEM'}\nParameters: ${args.parameters || 'none'}`);
+            return this.dryRun(`Would run script id=${args.scriptId} on device id=${args.deviceId} (${device.systemName || device.displayName || 'unknown'}).\nType: ${args.type || 'SCRIPT'}\nRun as: ${args.runAs || 'system'}\nParameters: ${args.parameters || 'none'}`);
           }
           return this.result(await this.api.runDeviceScript(args.deviceId, {
             type: args.type || 'SCRIPT',
             id: args.scriptId,
-            runAs: args.runAs || 'SYSTEM',
+            runAs: args.runAs || 'system',
             parameters: args.parameters
           }));
         }
@@ -1808,7 +1823,7 @@ Always use official NinjaOne Device Filter syntax.`
         case 'execute_script': {
           const deviceId = args.device_id;
           const scriptName = args.script;
-          const runAs = args.run_as || 'SYSTEM';
+          const runAs = args.run_as || 'system';
           const parameters = args.parameters || '';
 
           // Step 1: Resolve script name → ID
